@@ -291,6 +291,73 @@ auto createTexture2dFromExr = [&](const char *filename)
 	return tex;
 };
 
+auto createTexture3dFromUnityExr = [&](const char* filename) -> Texture3D*
+	{
+		const int SIZE = 64;        // 3D 纹理的单边长
+		const int GRID_COUNT = 8;   // 横纵各 8 个格子
+
+		float* rawRgba = nullptr;
+		int fullWidth, fullHeight;
+		const char* err = nullptr;
+
+		// 加载 512x512 的大图
+		int exrError = LoadEXR(&rawRgba, &fullWidth, &fullHeight, filename, &err);
+		if (exrError != TINYEXR_SUCCESS) return nullptr;
+
+		// 校验尺寸：如果不是 512x512，说明格子大小或数量不对
+		if (fullWidth != SIZE * GRID_COUNT || fullHeight != SIZE * GRID_COUNT) {
+			// 处理异常或报错
+			free(rawRgba);
+			return nullptr;
+		}
+
+		// 申请 64^3 的连续内存 (1MB 数据量)
+		std::vector<float> d3dVolume(SIZE * SIZE * SIZE * 4);
+
+		for (int z = 0; z < SIZE; ++z) {
+			// 计算当前 Slice 在大图中的格子位置 (从左往右，从上往下计数)
+			int tileX = z % GRID_COUNT;
+			int tileY = z / GRID_COUNT;
+
+			for (int y = 0; y < SIZE; ++y) {
+				// 找到原始大图中的起始像素位置
+				// srcY = (格子纵坐标 * 格子高) + 格子内行偏移
+				int srcY = (tileY * SIZE) + y;
+				// srcX = 格子横坐标 * 格子宽
+				int srcX = (tileX * SIZE);
+
+				// 指向原始图中这一行的开头
+				float* srcPtr = &rawRgba[(srcY * fullWidth + srcX) * 4];
+
+				// 指向 D3D 目标内存中对应 Slice 的对应行开头
+				float* dstPtr = &d3dVolume[(z * SIZE * SIZE + y * SIZE) * 4];
+
+				// 拷贝一整行数据 (64 个 float4)
+				memcpy(dstPtr, srcPtr, SIZE * sizeof(float) * 4);
+			}
+		}
+
+		// 创建 D3D11 描述符
+		D3D11_TEXTURE3D_DESC texDesc = {};
+		texDesc.Width = SIZE;
+		texDesc.Height = SIZE;
+		texDesc.Depth = SIZE;
+		texDesc.MipLevels = 1;
+		texDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+		texDesc.Usage = D3D11_USAGE_IMMUTABLE;
+		texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+		D3D11_SUBRESOURCE_DATA initData = {};
+		initData.pSysMem = d3dVolume.data();
+		initData.SysMemPitch = SIZE * sizeof(float) * 4;           // 1024 字节
+		initData.SysMemSlicePitch = initData.SysMemPitch * SIZE;   // 65536 字节
+
+		Texture3D* tex = new Texture3D(texDesc, &initData);
+
+		free(rawRgba);
+		return tex;
+	};
+
 void Game::saveBackBufferHdr(const char* filepath)
 {
 	const D3D11_TEXTURE2D_DESC& desc = mBackBufferHdrStagingTexture->mDesc;
@@ -425,6 +492,7 @@ void Game::allocateResolutionIndependentResources()
 
 	mBlueNoise2dTex = createTexture2dFromExr("./Resources/bluenoise.exr");		// I do not remember where this noise texture comes from.
 	mTerrainHeightmapTex = createTexture2dFromExr("./Resources/heightmap1.exr");
+	mCloudTex = createTexture3dFromUnityExr("./Resources/VolumeCloud.exr");
 
 	D3dTexture2dDesc desc = Texture2D::initDefault(DXGI_FORMAT_R16G16B16A16_FLOAT, LutsInfo.TRANSMITTANCE_TEXTURE_WIDTH, LutsInfo.TRANSMITTANCE_TEXTURE_HEIGHT, true, true);
 	mTransmittanceTex = new Texture2D(desc);
@@ -482,6 +550,7 @@ void Game::releaseResolutionIndependentResources()
 
 	resetPtr(&mBlueNoise2dTex);
 	resetPtr(&mTerrainHeightmapTex);
+	resetPtr(&mCloudTex);
 
 	resetPtr(&mTransmittanceTex);
 	resetPtr(&MultiScattTex);

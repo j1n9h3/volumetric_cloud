@@ -128,6 +128,7 @@ private:
 	Texture2D* mShadowMap;
 
 	Texture2D* mTerrainHeightmapTex;
+	Texture3D* mCloudTex;
 	Texture2D* mBlueNoise2dTex;
 
 	uint32 mFrameId = 0;

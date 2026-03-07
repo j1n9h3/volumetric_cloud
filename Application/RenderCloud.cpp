@@ -41,6 +41,10 @@ void Game::renderCloud()
 		context->VSSetConstantBuffers(0, 1, &mConstantBuffer->mBuffer);
 		context->VSSetConstantBuffers(1, 1, &SkyAtmosphereBuffer->mBuffer);
 
+		context->VSSetShaderResources(0, 1, &mCloudTex->mShaderResourceView);
+		context->PSSetSamplers(0, 1, &SamplerLinear->mSampler);
+		context->PSSetShaderResources(0, 1, &mCloudTex->mShaderResourceView);
+
 		// Draw cube (36 vertices for 12 triangles)
 		// context->Draw(36, 0);
 		context->DrawInstanced(36, 1, 0, 0);
