@@ -41,7 +41,6 @@ static const float3 cubeVertices[36] =
     float3(-1, -1, -1), float3(1, -1, 1), float3(1, -1, -1),
 };
 
-float3 cubeHeight = float3(0, 10, 100);
 
 CloudVertexOutput CloudVertexShader(
     uint vertexId : SV_VertexID,
@@ -50,7 +49,7 @@ CloudVertexOutput CloudVertexShader(
     CloudVertexOutput output;
 
     // Use same offset as terrain to ensure cloud is in view
-    float4 worldPos = float4(cubeVertices[vertexId], 1.0f);
+    float4 worldPos = float4(cubeVertices[vertexId] + float3(0, 0, 1), 1.0f);
     output.worldPos = worldPos.xyz;
     output.position = mul(gViewProjMat, worldPos);
 
@@ -61,33 +60,55 @@ CloudVertexOutput CloudVertexShader(
 float3 shpere_center = float3(0, 0, 0);
 float radius = 0.5;
 
+static const float light_sample_steps = 200;
+static const int cloud_sample_steps = 200;
+static const float step_size = 0.05;
 
+static const float absorption_coeff =0.8;
 
 float4 CloudPixelShader(CloudVertexOutput input) : SV_TARGET
 {
     float3 ray_direct = normalize(input.worldPos - camera);
-    float3 rayOrigin = camera;
-    float step_size = 0.05;
-    
-    float totalDensity = 0.0;
-    
-    for (int i = 0; i < 200; i++)
-    {
-        rayOrigin += (ray_direct * step_size);
+    float3 ray_point = camera;
+
+    float transmittance = 1.0;
+    float light_energy = 0;
         
-        float3 uvw = rayOrigin * 0.5 + 0.5;
+    for (int i = 0; i < cloud_sample_steps; i++)
+    {
+        ray_point += (ray_direct * step_size);
+        
+        float3 uvw = (ray_point - float3(0, 0, 1)) * 0.5 + 0.5;
         
         if (all(uvw >= 0.0) && all(uvw <= 1.0))
         {
-            float sampleValue = CloudTexture.SampleLevel(g_LinearSampler, uvw, 0).r;
-            totalDensity += sampleValue * 0.01;
-        }
-        else if (totalDensity > 0.0)
-        {
-            break;
+            float current_density = CloudTexture.SampleLevel(g_LinearSampler, uvw, 0).r;            
+            if (current_density > 0.01)
+            {
+                float cloud_density_through_light = 0;
+                float3 light_ray_point = ray_point;
+                
+                for (int j = 0; j < 200; j++)
+                {
+                    light_ray_point += sun_direction * step_size;
+                    float3 l_uvw = (light_ray_point - float3(0, 0, 1)) * 0.5 + 0.5;
+                    
+                    if (all(l_uvw >= 0.0) && all(l_uvw <= 1.0))
+                    {
+                        cloud_density_through_light += CloudTexture.SampleLevel(g_LinearSampler, l_uvw, 0).r * step_size;
+                    }
+                }
+                float light_transmission = exp(-cloud_density_through_light * absorption_coeff );
+                
+                light_energy += current_density * light_transmission * transmittance * step_size;
+                transmittance *= exp(-current_density * absorption_coeff);
+                if (transmittance < 0.01)
+                    break;
+            }
         }
     }
-    totalDensity = saturate(totalDensity);
-    float3 color = float3(1, 1, 1);
-    return float4(color * totalDensity, totalDensity);
+
+    float3 cloud_color = float3(1, 1, 1);
+    float final_alpha = saturate(1.0 - transmittance);
+    return float4(cloud_color * light_energy, final_alpha);
 }

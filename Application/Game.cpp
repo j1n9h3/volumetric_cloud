@@ -1081,7 +1081,7 @@ void Game::render()
 
 	renderShadowmap();
 	renderTerrain();
-	renderCloud();
+
 
 	{
 		GPU_SCOPED_TIMEREVENT(SkyRender, 255, 255, 255);
@@ -1118,6 +1118,8 @@ void Game::render()
 			renderSkyAtmosphereUsingLUTs();
 		}
 	}
+
+	renderCloud();
 
 	//////////
 	////////// Final post process
